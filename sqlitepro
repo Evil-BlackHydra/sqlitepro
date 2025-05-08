@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+
+import sqlite3
+from sys import argv, stdin
+from os import system, remove
+from pathlib import Path
+from subprocess import run
+from shutil import rmtree
+from random import randint, choice
+from string import ascii_letters
+from re import fullmatch
+from json import dumps
+from datetime import datetime, timezone
+			
+class databaseCmnd:
+	def __init__(self):
+		self.input_text = "> "
+		self.loop = True
+		self.currentDB = ""
+		
+	def close(self):
+		if (self.input_text != "> "):
+			self.conn.commit()
+			self.conn.close()
+			self.input_text = "> "
+			self.currentDB = self.input_text.split(">")[0].strip()
+			self.conn = ""
+		
+	def use(self, file_name):
+		if (len(file_name.split(".")) < 2 
+			and fullmatch(r'^[^0-9][\w]*', file_name)):
+			self.close()
+			self.input_text =  f"{file_name}> "
+			self.currentDB = self.input_text.split(">")[0].strip()
+			file_name = db_dir / file_name
+			self.conn = sqlite3.connect(f"{file_name}.db")
+			self.cursor = self.conn.cursor()
+			db_data()
+		else:
+			print("Do not use (spaces), (symbols except '_'), and (numbers in the starting) in collection name...")
+		
+	def dropDatabase(self):
+		if (self.currentDB != ""):
+			database = db_dir / f"{self.currentDB}.db"
+			database.unlink()
+			self.input_text = "> "
+			self.currentDB = self.input_text.split(">")[0].strip()
+			db_data()
+		else:
+			print("Use a database first...")
+	
+	def createCollection(self, table):
+		try:
+			if not (fullmatch(r'^[^0-9][\w]*', table)):
+				print("Do not use (spaces), (symbols except '_'), and (numbers in the starting) in collection name...")
+			self.cursor.execute(f"CREATE TABLE IF NOT EXISTS {table} (data TEXT)")
+			
+		except:
+			raise
+			print("Please use a database first...")
+			
+			
+class collectionCmnd:
+	def __init__(self, new_instance, table):
+		self.db_self = new_instance
+		self.table = table
+		
+	def drop(self):
+		try:
+			self.db_self.cursor.execute(f"DROP TABLE {self.table}")
+		except:
+			print("Collection does not exists...")
+		
+	def insertOne(self, data):
+		unq_id = ""
+		for i in range(10):
+			if choice([True, False]):
+				unq_id += str(randint(0, 9))
+			else:
+				unq_id += choice(ascii_letters)
+		data_str = dumps({"_id": unq_id, **data})
+		self.db_self.cursor.execute(f'''
+			INSERT INTO {self.table} (data) VALUES (?)
+		''', (data_str,))
+		
+	def insertMany(self, data):
+		def unq_id_generator():
+			unq_id = ""
+			for i in range(10):
+				if choice([True, False]):
+					unq_id += str(randint(0, 9))
+				else:
+					unq_id += choice(ascii_letters)
+			return unq_id
+			
+		for i in data:
+			data_str = dumps({"_id": unq_id_generator(), **i})
+			print(data_str)
+			self.db_self.cursor.execute(f"""
+				INSERT INTO {self.table} (data) VALUES (?)
+			""", (data_str,))
+		
+	def find(self, query):
+		
+			
+class defaultCmnd():
+	def __init__(self, new_instance):
+		self.db_self = new_instance
+		
+	def close(self):
+		print("Closing the database...")
+		self.db_self.loop = False
+		self.db_self.close()
+		print("Database closed successfully...\n")
+			
+	def show_dbs(self):
+		for db_name in db_names:
+			print(db_name.split(".")[0])
+									
+	def clear(self):
+		system("clear")
+									
+	def show_cols(self):
+		try:
+			cols = self.db_self.cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+			for col in cols:
+				print(col[0])
+				
+		except:
+			print("Use a database first to see its collections...")
+			
+	def show_crnt_db(self):
+		if (self.db_self.currentDB != ""):
+			print(self.db_self.currentDB)
+		else:
+			print("Use a database first...")
+		
+		
+if len(argv) == 1:
+	print('''
+  Desciption:
+    It is a Database Manager which is inspired by MongoDB. It works on terminal
+    and uses MongoDB's commands to interect with database. It uses sqlite module
+    of python and all of its database related work is handled by sqlite.
+    
+  Usage:
+    sqlitepro [option] [directory] [flags]{optional}
+    
+  Options:
+    connect   -   It is used for connect to directory where all of your database 
+		  files exists.
+    delete    -   It is used for delete the directory where all of your database 
+		  files exists.
+    
+  Flags:
+    -h        -   This flag is used for compass like feature which runs on 
+		  browser and show your databases, collections, and data.
+    -m        -   This flag is used to run localhost server on a specific port.
+    
+  Note:
+    This Database Manager is still in development and few commands may not work.
+    Flags are in development and we cannot use them yet.
+''')
+
+elif len(argv) == 2:
+	options = ["connect", "delete"]
+	if argv[1] not in options:
+		print(f"'{argv[1]}' is not an option...\n")
+		
+	else:
+		print(f"Please provide the database directory after '{argv[1]}' option...\n")
+
+elif len(argv) == 3:
+	options = ["connect", "delete"]
+	if argv[1] in options:
+		db_dir = Path(argv[2]).resolve()
+		supported_formats = ["sqlite", "sqlite3", "db", "dat"]
+		def db_data():
+			global db_names
+			db_dir_files = [file.name for file in db_dir.iterdir()]
+			db_names = []
+			for db_file in db_dir_files:
+				if (str(db_file).split(".")[1] in  supported_formats):
+					db_names.append(db_file)
+		
+		def recursive():
+			if (db_dir.exists()):
+				if (db_dir.is_dir()):
+					if (argv[1] == "connect"):
+						print(f"Connecting to database directory...")
+						print("Connected successfully...")
+						print("Use 'close()' to stop the SQLitePro...\n")
+						commands = {
+							"show dbs": "show_dbs",
+							"show databases": "show_dbs",
+							"cls": "clear",
+							"clear": "clear",
+							"show collections": "show_cols",
+							"show cols": "show_cols",
+							"db": "show_crnt_db",
+							"close()": "close"
+						}
+							
+						db = databaseCmnd()
+						dfCmnd = defaultCmnd(db)
+						colCmnd = collectionCmnd(db, None)
+						db_data()
+						while db.loop:
+							if __name__ == "__main__":
+								try:
+									print(db.input_text, end="", flush=True)
+									usr = stdin.readline().strip()
+									
+									if (usr == ""):
+										pass
+										
+									elif (usr.lower() in commands.keys()):
+										db_data()
+										getattr(dfCmnd, commands[usr.lower()])()
+										
+									elif (len(usr.split(" ")) == 2
+										and usr.split(" ")[0] == "use"):
+										db.use(usr.split(" ")[1].strip())
+										
+									else:
+										cmd_array = usr.split(".")
+										if (len(cmd_array) == 2
+											and hasattr(db, cmd_array[1].split("(")[0])):
+											try:
+												exec(usr)
+												
+											except Exception as e:
+												raise
+												print(f"Error: {e}")
+												
+										elif (len(cmd_array) == 3
+											and hasattr(colCmnd, cmd_array[2].split("(")[0])):
+											setattr(db, cmd_array[1], collectionCmnd(db, cmd_array[1]))
+											exec(usr)
+											
+										else:
+											print(f"'{usr}' is not a command...")
+											
+								except KeyboardInterrupt:
+									print("\nUse 'close()' to close the SQLitePro...")
+									dfCmnd.close()
+								
+								except Exception as e:
+									raise
+									print(f"Error: {e}")
+					
+					else:
+						deletionConfirmation = input("Are you sure (y/n): ")
+						if (deletionConfirmation in ["y", "Y"]):
+							try:
+								rmtree(db_dir)
+								print(f"'{db_dir}' has been deleted successfully...\n")
+							
+							except:
+								print(f"An error has occured while deleting the '{db_dir}' database directory...\n")
+							
+				else:
+					print(f"'{db_dir}' is not a directory...\n")
+			
+			else:
+				if (argv[1] == "connect"):
+					print(f"Directory '{db_dir}' does not exist...")
+					creation_input = input("Do you want to create it (y/n): ")
+					if (creation_input in ["y", "Y"]):
+						print("Creating database directory...")
+						db_dir.mkdir()
+						print("Database directory created successfully...\n")
+						recursive()
+						
+					else:
+						print("Creation cancel...\n")
+						
+				else:
+					print(f"'{db_dir}' is not exists...\n")
+				
+		recursive()
+			
+	else:
+		print(f"'{argv[1]}' is not an option...\n")
+	
+else:
+	print(f"SQLitePro only takes maximum two arguments...\n")
